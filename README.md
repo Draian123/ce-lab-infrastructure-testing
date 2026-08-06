@@ -178,6 +178,20 @@ required tag was reported missing even though all three were present.
 `antonbabenko/pre-commit-terraform`, not `pre-commit-tf`; the wrong URL makes
 `pre-commit install` fail to resolve the repo.
 
+**4. `plan-validation` fails in CI without AWS secrets.** The first CI run had
+`static-analysis` and `convention-checks` green but `plan-validation` red with
+`Error: No valid credential sources found`. The job's `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` expand to empty strings when no repository secrets exist, so the
+AWS provider falls back to EC2 instance metadata, which a GitHub runner does not have.
+**Fix:** add both secrets under *Settings → Secrets and variables → Actions*. Note GitHub
+deliberately withholds secrets from workflows triggered by a PR *from a fork*, so the two
+credential-free jobs are the ones that actually gate a fork PR. Full log in
+[`docs/test-results.md`](docs/test-results.md).
+
+**5. CRLF line endings would break the scripts on Linux runners.** Git on Windows converts
+`*.sh` to CRLF in the working copy; a script checked in with CRLF fails on `ubuntu-latest`
+with `\r: command not found`. **Fix:** `.gitattributes` pins `*.sh text eol=lf`.
+
 The script was also verified **negatively** — a scratch file containing a `BadName`
 resource and a hardcoded `eu-west-1` region was correctly rejected with exit code 1.
 See `docs/test-results.md`.

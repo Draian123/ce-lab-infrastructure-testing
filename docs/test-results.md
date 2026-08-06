@@ -149,6 +149,55 @@ $ ls -l .git/hooks/pre-commit
 The hook runs `terraform fmt -check`, `terraform validate`, and
 `validate-conventions.sh`, aborting the commit on the first failure.
 
+## Layer 4 — CI Pipeline
+
+Run [#1](https://github.com/Draian123/ce-lab-infrastructure-testing/actions/runs/31080220205)
+on commit `dc0a76f`, triggered by push to `main`. Total duration 47s.
+
+| Job | Duration | Result |
+|---|---|---|
+| Static Analysis (fmt → init → validate → tflint) | 21s | **Success** |
+| Convention Checks | 3s | **Success** |
+| Plan Validation | 12s | **Failure** — see below |
+
+`tflint --init && tflint` passed in CI, which is the check that could not be run locally.
+
+### Plan Validation failure — missing AWS secrets
+
+```
+Run ./scripts/validate-plan.sh
+=== Plan Validation ===
+╷
+│ Error: No valid credential sources found
+│ Planning failed. Terraform encountered an error while generating this plan.
+│
+│   with provider["registry.terraform.io/hashicorp/aws"],
+│   on main.tf line 11, in provider "aws":
+│   11: provider "aws" {
+│
+│ Error: failed to refresh cached credentials, no EC2 IMDS role found,
+│ operation error ec2imds: GetMetadata, ... EC2 IMDS failed
+╵
+Error: Process completed with exit code 1.
+```
+
+**Cause:** the `plan-validation` job reads `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+from repository secrets, and this repository has none configured, so both env vars expand
+to empty strings. The AWS provider then falls back to the EC2 instance metadata service,
+which does not exist on a GitHub-hosted runner. This is the credential requirement the lab
+flags in Step 5 — not a defect in `validate-plan.sh`, which ran correctly up to the point
+where Terraform needed to authenticate.
+
+**Resolution:** add the two secrets under
+*Settings → Secrets and variables → Actions → New repository secret* and re-run the job.
+The plan assertions themselves were verified locally against real credentials (Layer 3 above),
+where all four expected resource types were found and no destroys were planned.
+
+Note that GitHub does not pass repository secrets to workflows triggered by a pull request
+*from a fork*, so this job is expected to fail on the upstream PR regardless. The
+credential-free jobs — `static-analysis` and `convention-checks` — are the ones that
+meaningfully gate a fork PR.
+
 ## Summary
 
 | Layer | Check | Status |
@@ -159,5 +208,8 @@ The hook runs `terraform fmt -check`, `terraform validate`, and
 | 1 | `tflint` | Runs in CI |
 | 2 | Convention validation (positive) | PASS |
 | 2 | Convention validation (negative) | PASS — correctly exits 1 |
-| 3 | Plan resource-type assertions | PASS (4/4 types, 0 destroys) |
-| 4 | Pre-commit hook installed | PASS |
+| 3 | Plan resource-type assertions (local, real creds) | PASS (4/4 types, 0 destroys) |
+| 4 | CI — Static Analysis job | PASS |
+| 4 | CI — Convention Checks job | PASS |
+| 4 | CI — Plan Validation job | FAIL — repo has no AWS secrets configured |
+| — | Pre-commit hook installed and fired on commit | PASS |
