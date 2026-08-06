@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings or bash on Linux CI runners fails with
+# "\r: command not found" when they are checked out on / committed from Windows.
+*.sh text eol=lf
+.git/hooks/* text eol=lf
